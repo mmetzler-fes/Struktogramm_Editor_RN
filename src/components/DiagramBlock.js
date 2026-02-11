@@ -83,11 +83,54 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 
 	if (!node) return null;
 
+	// Helper function to calculate minimum width recursively (like Python code)
+	const calculateMinWidth = (n) => {
+		if (!n) return 100;
+
+		const CHAR_WIDTH_AVG = 8;
+		const PADDING_X = 10;
+		const MIN_BLOCK_WIDTH = 100;
+
+		const textWidth = (n.label || '').length * CHAR_WIDTH_AVG + PADDING_X * 2;
+
+		if (n.type === 'process' || n.type === 'command' || n.type === 'exit' || n.type === 'subprogram') {
+			return Math.max(textWidth, MIN_BLOCK_WIDTH);
+		} else if (n.type === 'decision') {
+			const yesWidth = calculateMinWidthArray(n.yes || []);
+			const noWidth = calculateMinWidthArray(n.no || []);
+			return Math.max(yesWidth + noWidth, textWidth);
+		} else if (n.type === 'case') {
+			let totalBranchWidth = 0;
+			if (n.branches) {
+				for (const branch of n.branches) {
+					const branchWidth = calculateMinWidthArray(branch.children || []);
+					const branchTextWidth = (branch.label || '').length * CHAR_WIDTH_AVG + PADDING_X * 2;
+					totalBranchWidth += Math.max(branchWidth, branchTextWidth);
+				}
+			}
+			return Math.max(totalBranchWidth, textWidth);
+		} else if (['for_loop', 'while_loop', 'repeat_loop'].includes(n.type)) {
+			const childrenWidth = calculateMinWidthArray(n.children || []);
+			return Math.max(textWidth, childrenWidth + 30);
+		}
+		return Math.max(textWidth, MIN_BLOCK_WIDTH);
+	};
+
+	const calculateMinWidthArray = (nodes) => {
+		if (!nodes || nodes.length === 0) return 100;
+		let maxWidth = 100;
+		for (const node of nodes) {
+			maxWidth = Math.max(maxWidth, calculateMinWidth(node));
+		}
+		return maxWidth;
+	};
+
+
 	if (node.type === 'process' && (node.label === 'Start' || node.label === 'End')) {
 		return <View style={{ height: 0 }} />;
 	}
 
-	if (node.type === 'process' || node.type === 'command' || node.type === 'exit' || node.type === 'subprogram' || node.type === 'case') {
+	if (node.type === 'process' || node.type === 'command' || node.type === 'exit' || node.type === 'subprogram') {
 		return (
 			<View style={[styles.blockContainer, isSelected && styles.selectedContainer]}>
 				<BlockHeader
@@ -101,7 +144,55 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 		);
 	}
 
+	if (node.type === 'case') {
+		return (
+			<View style={[styles.blockContainer, isSelected && styles.selectedContainer]}>
+				<BlockHeader
+					type="case"
+					label={node.label}
+					onUpdateLabel={handleUpdateLabel}
+					isSelected={isSelected}
+					onSelect={handleSelect}
+				/>
+				<View style={styles.row}>
+					{node.branches && node.branches.map((branch, branchIndex) => (
+						<View
+							key={branchIndex}
+							style={[
+								styles.column,
+								{ flex: 1 },
+								branchIndex < node.branches.length - 1 && { borderRightWidth: 1, borderColor: '#000' }
+							]}
+						>
+							<Text style={styles.branchLabel}>{branch.label}</Text>
+							<DiagramNodes
+								nodes={branch.children}
+								parentPath={[...path, 'branches', branchIndex, 'children']}
+								onSelect={onSelect}
+								selectedPath={selectedPath}
+								onUpdate={onUpdate}
+								onDrop={onDrop}
+							/>
+						</View>
+					))}
+				</View>
+			</View>
+		);
+	}
+
+
 	if (node.type === 'decision') {
+		// Calculate minimum widths recursively for proportional width distribution
+		const leftMinWidth = calculateMinWidthArray(node.yes || []);
+		const rightMinWidth = calculateMinWidthArray(node.no || []);
+
+		// Use these as flex values (they represent relative proportions)
+		const leftFlex = leftMinWidth;
+		const rightFlex = rightMinWidth;
+
+		// Calculate splitRatio from min widths to avoid timing issues
+		const decisionSplitRatio = (leftMinWidth / (leftMinWidth + rightMinWidth)) * 100;
+
 		return (
 			<View style={[styles.blockContainer, isSelected && styles.selectedContainer]}>
 				<BlockHeader
@@ -110,11 +201,18 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 					onUpdateLabel={handleUpdateLabel}
 					isSelected={isSelected}
 					onSelect={handleSelect}
-					splitRatio={splitRatio}
+					splitRatio={decisionSplitRatio}
 				/>
 				<View style={styles.row}>
 					<View
-						style={[styles.column, { borderRightWidth: 1, borderColor: '#000' }]}
+						style={[
+							styles.column,
+							{
+								flex: leftFlex,
+								borderRightWidth: 1,
+								borderColor: '#000'
+							}
+						]}
 						onLayout={(e) => setWidths(prev => ({ ...prev, left: e.nativeEvent.layout.width }))}
 					>
 						<DiagramNodes
@@ -127,7 +225,10 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 						/>
 					</View>
 					<View
-						style={styles.column}
+						style={[
+							styles.column,
+							{ flex: rightFlex }
+						]}
 						onLayout={(e) => setWidths(prev => ({ ...prev, right: e.nativeEvent.layout.width }))}
 					>
 						<DiagramNodes
@@ -262,11 +363,11 @@ const styles = StyleSheet.create({
 		width: '100%',
 	},
 	column: {
-		flexGrow: 1,
 		flexShrink: 0,
 		// flexBasis: 'auto', // Implicit
 		borderColor: '#000',
 		// removed global borderLeftWidth to avoid alignment issues
+		// removed flexGrow: 1 to allow dynamic flex values for decision branches
 	},
 	input: {
 		width: '100%',
