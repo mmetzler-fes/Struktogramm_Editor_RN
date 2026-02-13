@@ -9,7 +9,7 @@ const PADDING_X = 10;
 const PADDING_Y = 10;
 const MIN_BLOCK_WIDTH = 100;
 
-class Graph {
+export class Graph {
 	constructor() {
 		this.nodes = {};
 		this.edges = [];
@@ -148,7 +148,7 @@ function findMergeNode(G, node1, node2, forbiddenNode = null) {
 	return null;
 }
 
-function buildStructure(G, currentNode, stopNode, visited) {
+export function buildStructure(G, currentNode, stopNode, visited) {
 	const blocks = [];
 	while (currentNode && currentNode !== stopNode) {
 		if (visited.has(currentNode)) break;
@@ -161,7 +161,7 @@ function buildStructure(G, currentNode, stopNode, visited) {
 		if (successors.length === 2) {
 			const nodeType = nodeData.type || 'process';
 
-			if (nodeType === 'loop' || nodeType === 'terminal') {
+			if (nodeType === 'loop' || nodeType === 'terminal' || ['for_loop', 'while_loop', 'repeat_loop'].includes(nodeType)) {
 				// Loop
 				const edge1 = G.getEdgeData(currentNode, successors[0]);
 				const label1 = (edge1.label || '').toLowerCase();
@@ -177,7 +177,9 @@ function buildStructure(G, currentNode, stopNode, visited) {
 
 				const bodyBlocks = buildStructure(G, bodyStartNode, currentNode, new Set(visited));
 				blocks.push({
-					type: 'loop', label, children: bodyBlocks
+					type: nodeType === 'terminal' || nodeType === 'loop' ? 'loop' : nodeType, // Normalize type if needed, or keep specific loop type
+					label,
+					children: bodyBlocks
 				});
 				currentNode = exitNode;
 			} else {
@@ -246,14 +248,16 @@ function buildStructure(G, currentNode, stopNode, visited) {
 			currentNode = mergeNode;
 		} else if (successors.length === 1) {
 			// Skip empty/dummy
-			if (!label || !label.trim()) {
+			if ((!label || !label.trim()) && nodeType !== 'process' && nodeType !== 'command' && nodeType !== 'subprogram') {
 				currentNode = successors[0];
 				continue;
 			}
-			blocks.push({ type: 'process', label });
+			blocks.push({ type: nodeType, label });
 			currentNode = successors[0];
 		} else {
-			blocks.push({ type: 'process', label });
+			if (nodeType !== 'end' && nodeType !== 'start') {
+				blocks.push({ type: nodeType, label });
+			}
 			currentNode = null;
 		}
 	}
@@ -538,4 +542,253 @@ export function convertMermaidToNsd(mermaidContent) {
 	const svgContent = renderBlocks(structuredTree, 0, 0, width);
 
 	return `<svg width="${width}" height="${totalHeight}" xmlns="http://www.w3.org/2000/svg" style="font-family: Arial, sans-serif;">${svgContent}</svg>`;
+}
+
+export function convertGraphToTree(graphData) {
+	const G = new Graph();
+	if (!graphData.nodes || !graphData.edges) return { type: 'root', children: [] };
+
+	graphData.nodes.forEach(node => {
+		G.addNode(node.id, { label: node.text || node.label, type: node.type });
+	});
+
+	graphData.edges.forEach(edge => {
+		G.addEdge(edge.from, edge.to, { label: edge.label });
+	});
+
+	// Find start node (assumed to be 'start_node_id' or first node)
+	let startNodeId = 'start_node_id';
+	if (!G.nodes[startNodeId]) {
+		// Fallback: find node with 0 in-degree
+		const nodeIds = Object.keys(G.nodes);
+		for (const node of nodeIds) {
+			if (G.getInDegree(node) === 0) {
+				startNodeId = node;
+				break;
+			}
+		}
+	}
+
+	// We need to skip 'start' node content but use it as entry point
+	const successors = G.getSuccessors(startNodeId);
+	let firstRealNodeId = successors.length > 0 ? successors[0] : null;
+
+	// In Python script logic: start -> firstNode. 
+	// buildStructure starts from firstRealNodeId.
+	// But we need to handle if start node IS the first node (if implicit).
+	// If the start node is actually of type 'start', we skip it.
+	const startNodeData = G.nodes[startNodeId];
+	if (startNodeData && startNodeData.type === 'start') {
+		// use successor
+	} else {
+		firstRealNodeId = startNodeId;
+	}
+
+	if (!firstRealNodeId && startNodeId && startNodeData.type === 'start') {
+		// Empty diagram
+		return { type: 'root', children: [] };
+	}
+
+	const children = buildStructure(G, firstRealNodeId, 'end_node_id', new Set());
+	return { type: 'root', children };
+}
+
+export function convertTreeToGraph(tree) {
+	const nodes = [];
+	const edges = [];
+
+	const addNode = (type, text) => {
+		const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
+		nodes.push({ id, type, text });
+		return id;
+	};
+
+	const addEdge = (from, to, label = "") => {
+		edges.push({ from, to, label });
+	};
+
+	const startId = 'start_node_id';
+	const endId = 'end_node_id';
+	nodes.push({ id: startId, type: 'start', text: 'Start' });
+	nodes.push({ id: endId, type: 'end', text: 'End' });
+
+	// Recursive builder
+	const processBlock = (block, entryId) => {
+		if (!block) return entryId;
+
+		const type = block.type;
+		const label = block.label || '';
+
+		if (type === 'process' || type === 'command' || type === 'subprogram' || type === 'exit') {
+			const nodeId = addNode(type, label);
+			addEdge(entryId, nodeId);
+			return nodeId;
+		} else if (type === 'decision' || type === 'if_else') {
+			const nodeId = addNode('if_else', label);
+			addEdge(entryId, nodeId);
+
+			const mergeId = addNode('join', ' ');
+
+			// True Branch
+			const trueDummyId = addNode('join', ' ');
+			addEdge(nodeId, trueDummyId, 'Ja');
+
+			let lastTrueId = trueDummyId;
+			if (block.yes && block.yes.length > 0) {
+				// If we have children, we process them sequentially
+				lastTrueId = processSequence(block.yes, trueDummyId);
+			}
+			addEdge(lastTrueId, mergeId);
+
+			// False Branch
+			const falseDummyId = addNode('join', ' ');
+			addEdge(nodeId, falseDummyId, 'Nein');
+
+			let lastFalseId = falseDummyId;
+			if (block.no && block.no.length > 0) {
+				lastFalseId = processSequence(block.no, falseDummyId);
+			}
+			addEdge(lastFalseId, mergeId);
+
+			return mergeId;
+		} else if (['for_loop', 'while_loop', 'repeat_loop'].includes(type) || type === 'loop') {
+			// Loop
+			const nodeId = addNode(type, label);
+			addEdge(entryId, nodeId);
+
+			const bodyDummyId = addNode('join', ' ');
+			addEdge(nodeId, bodyDummyId);
+
+			let lastBodyId = bodyDummyId;
+			if (block.children && block.children.length > 0) {
+				lastBodyId = processSequence(block.children, bodyDummyId);
+			}
+			// Back edge
+			addEdge(lastBodyId, nodeId);
+
+			return nodeId; // The loop node is its own exit source for the next block (via 'Exit' edge)
+		} else if (type === 'case') {
+			const nodeId = addNode('case', label);
+			addEdge(entryId, nodeId);
+
+			const mergeId = addNode('join', ' ');
+
+			if (block.branches) {
+				block.branches.forEach(branch => {
+					const branchDummyId = addNode('join', ' ');
+					addEdge(nodeId, branchDummyId, branch.label);
+
+					let lastBranchId = branchDummyId;
+					if (branch.children && branch.children.length > 0) {
+						lastBranchId = processSequence(branch.children, branchDummyId);
+					}
+					addEdge(lastBranchId, mergeId);
+				});
+			}
+			return mergeId;
+		}
+
+		return entryId;
+	};
+
+	const processSequence = (blocks, startNodeId) => {
+		let currentId = startNodeId;
+		for (const block of blocks) {
+			const nextId = processBlock(block, currentId);
+			// Specifically for loop, the nextId returned is the Loop Head.
+			// But the edges are already added: entry -> loopHead.
+			// Wait, processBlock adds edge entryId -> nodeId.
+			// So for loop: currentId -> LoopHead.
+
+			// However, after Loop, we need to connect LoopHead -> NextBlock with 'Exit' label.
+			// My default `addEdge(entryId, nodeId)` doesn't handle 'Exit' label.
+
+			// We need to specialized handling.
+
+			// Let's refactor processBlock to NOT add edge from entryId?
+			// No, keeping it is simpler, but we need to handle labels.
+
+			currentId = nextId;
+		}
+		return currentId;
+	};
+
+	// Redo process with cleaner logic for edges
+	// processBlock(block) returns { entryId, exitId }
+	// No, we are building a graph given an entry point.
+
+	// Re-implementation of Recursive Builder
+	const buildFromBlocks = (blocks, predecessorId) => {
+		let currentPred = predecessorId;
+
+		for (const block of blocks) {
+			const type = block.type === 'decision' ? 'if_else' : block.type;
+			const label = block.label || '';
+			const nodeId = addNode(type, label);
+
+			// Connect Predecessor -> Node
+			let edgeLabel = "";
+			// Check if predecessor was a loop, if so label is Exit.
+			// But we don't know predecessor type easily unless we look it up.
+			const predNode = nodes.find(n => n.id === currentPred);
+			if (predNode && ['for_loop', 'while_loop', 'repeat_loop', 'loop'].includes(predNode.type)) {
+				edgeLabel = "Exit";
+			}
+
+			addEdge(currentPred, nodeId, edgeLabel);
+
+			if (type === 'if_else') {
+				const mergeId = addNode('join', ' ');
+
+				// True
+				const trueDummy = addNode('join', ' ');
+				addEdge(nodeId, trueDummy, 'Ja');
+				const lastTrue = buildFromBlocks(block.yes || [], trueDummy);
+				addEdge(lastTrue, mergeId);
+
+				// False
+				const falseDummy = addNode('join', ' ');
+				addEdge(nodeId, falseDummy, 'Nein');
+				const lastFalse = buildFromBlocks(block.no || [], falseDummy);
+				addEdge(lastFalse, mergeId);
+
+				currentPred = mergeId;
+			} else if (['for_loop', 'while_loop', 'repeat_loop', 'loop'].includes(type)) {
+				// Loop
+				const bodyDummy = addNode('join', ' ');
+				addEdge(nodeId, bodyDummy); // Loop to Body
+
+				const lastBody = buildFromBlocks(block.children || [], bodyDummy);
+				addEdge(lastBody, nodeId); // Back edge
+
+				currentPred = nodeId; // Next block connects from LoopHead (Exit)
+			} else if (type === 'case') {
+				const mergeId = addNode('join', ' ');
+				if (block.branches) {
+					block.branches.forEach(branch => {
+						const branchDummy = addNode('join', ' ');
+						addEdge(nodeId, branchDummy, branch.label);
+						const lastBranch = buildFromBlocks(branch.children || [], branchDummy);
+						addEdge(lastBranch, mergeId);
+					});
+				}
+				currentPred = mergeId;
+			} else {
+				currentPred = nodeId;
+			}
+		}
+		return currentPred;
+	};
+
+	const lastNodeId = buildFromBlocks(tree.children, startId);
+
+	// Connect last node to End
+	let finalLabel = "";
+	const lastNode = nodes.find(n => n.id === lastNodeId);
+	if (lastNode && ['for_loop', 'while_loop', 'repeat_loop', 'loop'].includes(lastNode.type)) {
+		finalLabel = "Exit";
+	}
+	addEdge(lastNodeId, endId, finalLabel);
+
+	return { nodes, edges };
 }

@@ -4,6 +4,7 @@ import { Toolbox } from './Toolbox';
 import { DiagramNodes } from './DiagramBlock';
 import { generateMermaid } from '../utils/generator';
 import { DragProvider } from '../context/DragContext';
+import { convertGraphToTree, convertTreeToGraph } from '../utils/converter';
 
 const INITIAL_STATE = {
 	type: 'root',
@@ -153,7 +154,8 @@ export const Editor = () => {
 	// Save Diagram (Download JSON)
 	const handleSaveDiagram = () => {
 		if (Platform.OS === 'web') {
-			const json = JSON.stringify(tree, null, 2);
+			const graphData = convertTreeToGraph(tree);
+			const json = JSON.stringify(graphData, null, 2);
 			const blob = new Blob([json], { type: 'application/json' });
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
@@ -180,7 +182,12 @@ export const Editor = () => {
 				reader.onload = (event) => {
 					try {
 						const json = JSON.parse(event.target.result);
-						if (json && json.type === 'root' && Array.isArray(json.children)) {
+						if (json && json.nodes && json.edges) {
+							// Graph Format (Python compatible)
+							const newTree = convertGraphToTree(json);
+							setTree(newTree);
+						} else if (json && json.type === 'root' && Array.isArray(json.children)) {
+							// Native Tree Format
 							setTree(json);
 						} else {
 							Alert.alert("Error", "Invalid diagram file format.");

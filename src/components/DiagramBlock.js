@@ -4,6 +4,7 @@ import { Svg, Line, Polygon } from 'react-native-svg';
 import { DropZone } from './DropZone';
 
 const BLOCK_height = 40;
+const DECISION_HEADER_HEIGHT = 80; // Python style
 const INDENT_WIDTH = 20;
 
 const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRatio = 50 }) => {
@@ -16,8 +17,8 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 			style={[
 				styles.blockHeader,
 				isSelected && styles.selected,
-				// Removed fixed height. Let it grow.
-				{ width: '100%' } // Ensure full width
+				{ width: '100%' }, // Ensure full width
+				isDecision && { minHeight: DECISION_HEADER_HEIGHT }
 			]}
 			onPress={onSelect}
 			activeOpacity={0.9}
@@ -28,11 +29,13 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 					<Line x1="100" y1="0" x2={splitRatio} y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
 				</Svg>
 			)}
-			{isCase && (
-				<Svg style={StyleSheet.absoluteFill} viewBox="0 0 100 100" preserveAspectRatio="none">
-					<Line x1="0" y1="0" x2="100" y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-				</Svg>
-			)}
+			{
+				isCase && (
+					<Svg style={StyleSheet.absoluteFill} viewBox="0 0 100 100" preserveAspectRatio="none">
+						<Line x1="0" y1="0" x2="100" y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+					</Svg>
+				)
+			}
 
 			<View style={isDecision ? { marginBottom: 15, zIndex: 1 } : { width: '100%' }}>
 				<TextInput
@@ -44,13 +47,15 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 				/>
 			</View>
 
-			{isDecision && (
-				<>
-					<Text style={[styles.decisionLabel, { left: 5, bottom: 2 }]}>Ja</Text>
-					<Text style={[styles.decisionLabel, { right: 5, bottom: 2 }]}>Nein</Text>
-				</>
-			)}
-		</TouchableOpacity>
+			{
+				isDecision && (
+					<>
+						<Text style={[styles.decisionLabel, { left: 5, bottom: 5 }]}>Ja</Text>
+						<Text style={[styles.decisionLabel, { right: 5, bottom: 5 }]}>Nein</Text>
+					</>
+				)
+			}
+		</TouchableOpacity >
 	);
 };
 
@@ -346,11 +351,11 @@ const styles = StyleSheet.create({
 	blockHeader: {
 		padding: 5,
 		borderBottomWidth: 1,
-		borderBottomColor: '#ccc',
+		borderBottomColor: '#000', // Python uses black
 		justifyContent: 'center',
 		alignItems: 'center',
 		backgroundColor: '#fff',
-		minHeight: 35,
+		minHeight: 35, // Default min height
 		overflow: 'hidden',
 	},
 	selected: {
