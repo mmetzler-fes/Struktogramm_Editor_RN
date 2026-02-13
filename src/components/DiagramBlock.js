@@ -195,8 +195,13 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 		const leftFlex = leftMinWidth;
 		const rightFlex = rightMinWidth;
 
-		// Calculate splitRatio from min widths to avoid timing issues
-		const decisionSplitRatio = (leftMinWidth / (leftMinWidth + rightMinWidth)) * 100;
+		// Calculate splitRatio from min widths to avoid timing issues, BUT prefer actual measured widths if available
+		const measuredTotal = widths.left + widths.right;
+		const minTotal = leftMinWidth + rightMinWidth;
+
+		const decisionSplitRatio = measuredTotal > 0
+			? (widths.left / measuredTotal) * 100
+			: (minTotal > 0 ? (leftMinWidth / minTotal) * 100 : 50);
 
 		return (
 			<View style={[styles.blockContainer, isSelected && styles.selectedContainer]}>

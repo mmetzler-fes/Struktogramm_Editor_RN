@@ -223,9 +223,7 @@ export const Editor = () => {
 
 							<View style={styles.separator} />
 
-							<TouchableOpacity onPress={handleExport}>
-								<Text style={styles.actionBtn}>Export Mermaid</Text>
-							</TouchableOpacity>
+							{/* Removed Export Mermaid Button */}
 							{selectedPath && (
 								<TouchableOpacity onPress={handleDelete}>
 									<Text style={[styles.actionBtn, styles.deleteBtn]}>Delete</Text>
