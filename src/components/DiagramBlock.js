@@ -25,14 +25,8 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 		>
 			{isDecision && (
 				<Svg style={StyleSheet.absoluteFill} viewBox="0 0 100 100" preserveAspectRatio="none">
-					<Polygon
-						points={`0,0 ${splitRatio},100 100,0`}
-						fill="none"
-						stroke="black"
-						strokeWidth="1"
-						vectorEffect="non-scaling-stroke"
-						strokeLinejoin="round"
-					/>
+					<Line x1="0" y1="0" x2={splitRatio} y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+					<Line x1="100" y1="0" x2={splitRatio} y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
 				</Svg>
 			)}
 			{
@@ -43,7 +37,7 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 				)
 			}
 
-			<View style={isDecision ? { marginBottom: 5, zIndex: 1, padding: 5, width: '100%' } : { width: '100%' }}>
+			<View style={isDecision ? { position: 'absolute', top: 5, zIndex: 1, padding: 5, width: '100%' } : { width: '100%' }}>
 				<TextInput
 					style={[styles.input, { textAlign: 'center' }]}
 					value={label}
