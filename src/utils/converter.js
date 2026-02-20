@@ -154,13 +154,12 @@ export function buildStructure(G, currentNode, stopNode, visited) {
 		if (visited.has(currentNode)) break;
 		visited.add(currentNode);
 
-		const nodeData = G.nodes[currentNode];
+		const nodeData = G.nodes[currentNode] || {};
 		const label = nodeData.label || currentNode;
+		const nodeType = nodeData.type || 'process';
 		const successors = G.getSuccessors(currentNode);
 
 		if (successors.length === 2) {
-			const nodeType = nodeData.type || 'process';
-
 			if (nodeType === 'loop' || nodeType === 'terminal' || ['for_loop', 'while_loop', 'repeat_loop'].includes(nodeType)) {
 				// Loop
 				const edge1 = G.getEdgeData(currentNode, successors[0]);
@@ -189,7 +188,8 @@ export function buildStructure(G, currentNode, stopNode, visited) {
 
 				let isStandardDecision = false;
 				if (label1.includes('ja') || label1.includes('yes') || label1.includes('true') ||
-					label1.includes('nein') || label1.includes('no') || label1.includes('false')) {
+					label1.includes('nein') || label1.includes('no') || label1.includes('false') ||
+					nodeType === 'if_else' || nodeType === 'decision') {
 					isStandardDecision = true;
 				}
 
@@ -595,15 +595,23 @@ export function convertGraphToTree(graphData) {
 	}
 
 	const children = buildStructure(G, firstRealNodeId, 'end_node_id', new Set());
-	return { type: 'root', children };
+
+	// Add React Native's internal hidden Start/End anchors
+	const finalChildren = [
+		{ type: 'process', label: 'Start' },
+		...children,
+		{ type: 'process', label: 'End' }
+	];
+
+	return { type: 'root', children: finalChildren };
 }
 
 export function convertTreeToGraph(tree) {
 	const nodes = [];
 	const edges = [];
 
-	const addNode = (type, text) => {
-		const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
+	const addNode = (type, text, explicitId) => {
+		const id = explicitId || (Date.now().toString(36) + Math.random().toString(36).substr(2));
 		nodes.push({ id, type, text });
 		return id;
 	};
@@ -636,16 +644,16 @@ export function convertTreeToGraph(tree) {
 			addEdge(currentPred, nodeId, edgeLabel);
 
 			if (type === 'if_else') {
-				const mergeId = addNode('join', ' ');
+				const mergeId = addNode('join', ' ', `${nodeId}_merge`);
 
 				// True
-				const trueDummy = addNode('join', ' ');
+				const trueDummy = addNode('join', ' ', `${nodeId}_true_dummy`);
 				addEdge(nodeId, trueDummy, 'Ja');
 				const lastTrue = buildFromBlocks(block.yes || [], trueDummy);
 				addEdge(lastTrue, mergeId);
 
 				// False
-				const falseDummy = addNode('join', ' ');
+				const falseDummy = addNode('join', ' ', `${nodeId}_false_dummy`);
 				addEdge(nodeId, falseDummy, 'Nein');
 				const lastFalse = buildFromBlocks(block.no || [], falseDummy);
 				addEdge(lastFalse, mergeId);
@@ -678,7 +686,14 @@ export function convertTreeToGraph(tree) {
 		return currentPred;
 	};
 
-	const lastNodeId = buildFromBlocks(tree.children, startId);
+	let realBlocks = tree.children || [];
+	if (realBlocks.length >= 2 &&
+		realBlocks[0].type === 'process' && realBlocks[0].label === 'Start' &&
+		realBlocks[realBlocks.length - 1].type === 'process' && realBlocks[realBlocks.length - 1].label === 'End') {
+		realBlocks = realBlocks.slice(1, -1);
+	}
+
+	const lastNodeId = buildFromBlocks(realBlocks, startId);
 
 	// Connect last node to End
 	let finalLabel = "";

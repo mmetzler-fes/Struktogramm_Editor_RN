@@ -18,15 +18,21 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 				styles.blockHeader,
 				isSelected && styles.selected,
 				{ width: '100%' }, // Ensure full width
-				isDecision && { minHeight: DECISION_HEADER_HEIGHT }
+				isDecision && { minHeight: DECISION_HEADER_HEIGHT, padding: 0 }
 			]}
 			onPress={onSelect}
 			activeOpacity={0.9}
 		>
 			{isDecision && (
 				<Svg style={StyleSheet.absoluteFill} viewBox="0 0 100 100" preserveAspectRatio="none">
-					<Line x1="0" y1="0" x2={splitRatio} y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-					<Line x1="100" y1="0" x2={splitRatio} y2="100" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+					<Polygon
+						points={`0,0 ${splitRatio},100 100,0`}
+						fill="none"
+						stroke="black"
+						strokeWidth="1"
+						vectorEffect="non-scaling-stroke"
+						strokeLinejoin="round"
+					/>
 				</Svg>
 			)}
 			{
@@ -37,7 +43,7 @@ const BlockHeader = ({ type, label, onUpdateLabel, isSelected, onSelect, splitRa
 				)
 			}
 
-			<View style={isDecision ? { marginBottom: 15, zIndex: 1 } : { width: '100%' }}>
+			<View style={isDecision ? { marginBottom: 5, zIndex: 1, padding: 5, width: '100%' } : { width: '100%' }}>
 				<TextInput
 					style={[styles.input, { textAlign: 'center' }]}
 					value={label}
@@ -74,6 +80,7 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 
 	// Hoisted state for widths
 	const [widths, setWidths] = useState({ left: 0, right: 0 });
+	const [totalWidth, setTotalWidth] = useState(0);
 	const splitRatio = (widths.left + widths.right) > 0
 		? (widths.left / (widths.left + widths.right)) * 100
 		: 50;
@@ -195,13 +202,22 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 		const leftFlex = leftMinWidth;
 		const rightFlex = rightMinWidth;
 
-		// Calculate splitRatio from min widths to avoid timing issues, BUT prefer actual measured widths if available
-		const measuredTotal = widths.left + widths.right;
+		// Calculate splitRatio from min widths to avoid timing issues
+		// Use measured total width from the row to ensure alignment
+		const measuredTotal = totalWidth > 0 ? totalWidth : (widths.left + widths.right);
 		const minTotal = leftMinWidth + rightMinWidth;
 
-		const decisionSplitRatio = measuredTotal > 0
+		const decisionSplitRatio = (measuredTotal > 0 && widths.left > 0)
 			? (widths.left / measuredTotal) * 100
 			: (minTotal > 0 ? (leftMinWidth / minTotal) * 100 : 50);
+
+		if (!Number.isFinite(decisionSplitRatio)) {
+			console.warn('Invalid split ratio calculated:', decisionSplitRatio, widths, leftMinWidth, rightMinWidth);
+		}
+		const safeSplitRatio = Number.isFinite(decisionSplitRatio) ? decisionSplitRatio : 50;
+		// console.log('Decision Split Ratio:', safeSplitRatio, widths);
+
+		// console.log(`Decision Split: Left=${widths.left}, Right=${widths.right}, Ratio=${decisionSplitRatio}`);
 
 		return (
 			<View style={[styles.blockContainer, isSelected && styles.selectedContainer]}>
@@ -211,9 +227,12 @@ export function DiagramBlock({ node, path, onSelect, selectedPath, onUpdate, onD
 					onUpdateLabel={handleUpdateLabel}
 					isSelected={isSelected}
 					onSelect={handleSelect}
-					splitRatio={decisionSplitRatio}
+					splitRatio={safeSplitRatio}
 				/>
-				<View style={styles.row}>
+				<View
+					style={styles.row}
+					onLayout={(e) => setTotalWidth(e.nativeEvent.layout.width)}
+				>
 					<View
 						style={[
 							styles.column,
